@@ -65,22 +65,37 @@ if not all_pages:
     st.stop()
 
 # ── Retrieve relevant pages based on query keywords ───────────────────────────
-def get_relevant_content(query: str, char_limit: int = 30000) -> str:
-    query_lower = query.lower()
-    keywords = re.findall(r"\w+", query_lower)
+STOPWORDS = {"i", "a", "the", "is", "it", "do", "you", "for", "on", "in",
+             "of", "to", "and", "or", "have", "my", "me", "can", "how",
+             "what", "does", "any", "are", "with", "sell", "get", "about"}
 
-    # Score each page by keyword matches in URL + content
+def get_relevant_content(query: str, char_limit: int = 60000) -> str:
+    query_lower = query.lower()
+    all_words = re.findall(r"\w+", query_lower)
+    # Filter stopwords so meaningful terms score higher
+    keywords = [w for w in all_words if w not in STOPWORDS] or all_words
+
+    # Build multi-word phrases (bigrams) for better matching
+    bigrams = [f"{keywords[i]} {keywords[i+1]}" for i in range(len(keywords)-1)]
+    search_terms = keywords + bigrams
+
     scored = []
     for page in all_pages:
         text = (page["url"] + " " + page["content"]).lower()
+        # Bigrams score double to reward exact phrase matches
         score = sum(text.count(kw) for kw in keywords)
-        scored.append((score, page))
+        score += sum(text.count(bg) * 2 for bg in bigrams)
+        if score > 0:
+            scored.append((score, page))
 
-    # Sort by relevance, always include top matches
     scored.sort(key=lambda x: x[0], reverse=True)
 
+    # Always include at least the top 5 pages regardless of score
+    top_pages = [p for _, p in scored[:5]]
+    remaining = [p for _, p in scored[5:]]
+
     result = ""
-    for score, page in scored:
+    for page in top_pages + remaining:
         chunk = f"\n\n--- PAGE: {page['url']} ---\n{page['content']}"
         if len(result) + len(chunk) > char_limit:
             break
